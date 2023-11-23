@@ -1,37 +1,29 @@
 #include <winsock2.h>
-#include <stdio.h>
-#include <pthread.h>
-
-enum MessageID {
-    CLIENT_CONNECTION = 0,
-    PLAYER_INFORMATION = 1
-}
-
-typedef struct sockaddr_in sockaddr_in;
-typedef struct sockaddr sockaddr;
-
-typedef struct ClientPacket
-{
-    MessageID msgType;
-    byte ID;
-} ClientPacket;
+#include "network_datatypes.c"
 
 
-// Description: Creates the main server socket and enters the client message loop
+
+
+
+
+// Description: Creates the main server socket and enters the game loop
 int main(void)
 {
     SOCKET server_socket;
-    if (CreateServerContext(&server_socket) != 0) return -1;
-
-    CreateGameContext();
-    UpdateGameContext();
-
-
-
-    DestroyGameContext();
-    DestroyServerContext();
+	
+    if (CreateServerContext(&server_socket) == 0)
+	{
+		GameLoop(&server_socket);
+		
+		// After the game loop stops, turn off the server
+		DestroyServerContext(&server_socket);
+	}
+	else return -1;
 }
 
+
+
+// Description: General socket setup and initialization
 int CreateServerContext(SOCKET* server_socket)
 {
     // Loads the required DLLs for WinSock v2.2 usage
@@ -52,15 +44,44 @@ int CreateServerContext(SOCKET* server_socket)
 
 
 
+// Description: Socket deinitialization
 void DestroyServerContext(void)
 {
     closesocket(server_socket);
     WSACleanup();    
 }
 
+void GameLoop()
+{
+	Client client_list[5]; 
+	
+	while (!END)
+	{
+		ReceiveAndDecodeLoginPacket();
+	}
+	
+	while (!GAMEEND)
+	{
+		ReceiveAndDecodePlayerInfoPacket();
+		UpdatePlayerInfo(&client_list);
+		SendPlayerInfoToClients(client_list);
+	}
+}
+
+void ReceiveAndDecodeLoginPacket()
+{
+	sockaddr_in client_addr;
+    int client_addr_size = sizeof(client_addr);
+	
+	LoginPacket packet;
+	
+	recvfrom(server_socket, &packet, sizeof(packet), 0, (sockaddr*)&client_addr, &client_addr_size);
+    MessageHandler(packet);
+}
 
 
-void MessageLoop(SOCKET* server_socket)
+
+void ReceivePacket(SOCKET* server_socket)
 {
     sockaddr_in client_addr;
     int client_addr_size = sizeof(client_addr);
@@ -73,6 +94,8 @@ void MessageLoop(SOCKET* server_socket)
         MessageHandler(packet);
     }   
 }
+
+
 
 void MessageHandler(ClientPacket packet)
 {
