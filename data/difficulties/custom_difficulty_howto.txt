@@ -1,0 +1,2 @@
+If you want to create your custom difficulty, copy one of the files present in this folder and edit its values.
+
