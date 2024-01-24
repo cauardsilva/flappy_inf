@@ -42,11 +42,11 @@ void UpdateObstacles(Obstacle *obs_list, int *score, Difficulty difficulty)
         obs_list[i].gap_position_delta = current_gap_position_delta;
         
         
-        if (obs_list[i].position_x >= -OBSTACLE_WIDTH)
+        if (obs_list[i].position_x > -OBSTACLE_WIDTH)
             obs_list[i].position_x -= obs_list[i].speed; 
         else 
         {
-            // Checks if the new distance (based on score) is above zero. If it is lesser than zero, sets it to zero (we don't want any obstacles overlapping each other).
+            // Limits the new distance between obstacles (based on score) to zero (we don't want any obstacles overlapping each other).
             float current_obstacle_distance = difficulty.initial_obstacle_distance - (difficulty.obstacle_distance_increment * (int)(*score / difficulty.score_threshold)) > 0 ? difficulty.initial_obstacle_distance - (difficulty.obstacle_distance_increment * (int)(*score / difficulty.score_threshold)) : 0;
             
             obs_list[i].position_x = current_obstacle_distance + (OBSTACLE_WIDTH + current_obstacle_distance) * OBSTACLE_QUANTITY;

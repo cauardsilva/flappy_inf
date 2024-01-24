@@ -3,26 +3,44 @@
 #include <string.h>
 #include <iostream>
 #include <fstream>
+#include <stdio.h>      
+#include <stdlib.h>    
+#include <time.h>       
+
+
+#include <unistd.h>
 
 #include "./scripts/interactions.cpp"
 
 
-#define CLIENT_QUANTITY 2
+
 
 typedef struct Client {
     sockaddr_in address;
     Player player;
+    Color color;
 } Client;
 
+
+enum PlayerAction {NONE=0, JUMP=1};
 
 
 using namespace std;
 
 int main()
 {
- 
+    int qty;
+    cout << "Type the number of clients: ";
+    cin >> qty;
+    
+    const char CLIENT_QUANTITY = qty;
+    
+    srand(time(NULL));
+    
     WSADATA wsa;
     WSAStartup(MAKEWORD(2,2), &wsa);
+    
+    
     
     SOCKET server_socket = socket(AF_INET, SOCK_DGRAM, 0);
     
@@ -33,70 +51,84 @@ int main()
     
     bind(server_socket, (sockaddr*)&server_address, sizeof(server_address));
     
+    
+    
     sockaddr_in client_address;
     int client_address_size = sizeof(client_address);
     
-    char buffer;
     
-    int connected_clients = 0;
+    
+    char buffer = 0;
+    
     Client client_list[CLIENT_QUANTITY];
+    char total_buffer[CLIENT_QUANTITY];
+    bool already_connected = false;
     
-    bool found = false;
-    
-    while (connected_clients != CLIENT_QUANTITY)
+    for (int i = 0; i < (int)CLIENT_QUANTITY; ++i)
     {
-        
         recvfrom(server_socket, &buffer, sizeof(char), 0, (sockaddr*)&client_address, &client_address_size);
 
-        found = false;
+        already_connected = false;
         
         for (Client client : client_list)
         {
             if (client.address.sin_addr.s_addr == client_address.sin_addr.s_addr)
-                found = true;
-        }
-        
-        if (!found)
-        {
-            client_list[connected_clients].address              = client_address;
-            client_list[connected_clients].player.current_frame = 0;
-            client_list[connected_clients].player.speed         = 6;
-            client_list[connected_clients].player.jump_speed    = 1;
-            client_list[connected_clients].player.acceleration  = 0;
-            client_list[connected_clients].player.position_x    = 96;
-            client_list[connected_clients].player.position_y    = 200;
-            
-                
-            ++connected_clients;
-            cout << "New client! IP: " << inet_ntoa(client_address.sin_addr);
-        }
-    }
-    cout << "All clients connected!";
-    while (true)
-    {
-        
-
-        for (int i = 0; i < CLIENT_QUANTITY; ++i)
-        {
-            UpdatePlayer(&(client_list[i].player));
-            if ((client_list[i].address.sin_addr.s_addr == client_address.sin_addr.s_addr) && (buffer == 1))
             {
-                if (client_list[i].player.speed == 0)
-                    client_list[i].player.speed = -client_list[i].player.jump_speed;
-                else
-                    client_list[i].player.speed = -client_list[i].player.speed;
-        
+                already_connected = true;
+                break;
             }
         }
         
-        for (Client client : client_list)
+        if (!already_connected)
         {
+            client_list[i].address              = client_address;
+            client_list[i].player.current_frame = 0;
+            client_list[i].player.speed         = 0;
+            client_list[i].player.jump_speed    = 10;
+            client_list[i].player.acceleration  = .3;
+            client_list[i].player.position_x    = 96;
+            client_list[i].player.position_y    = 200;
+            client_list[i].color                = {rand() % 256, rand() % 256, rand() % 256, 255};
+            
+            cout << "New client connected! IP: " << inet_ntoa(client_address.sin_addr) << endl;
+            
+            sendto(server_socket, &CLIENT_QUANTITY, sizeof(char), 0, (sockaddr*)&client_address, sizeof(client_address));
+        }
+    }
+    
+    
+    cout << "All clients connected! Starting game.";
+    
+    
+    time_t initial_time;
+ 
+    while (true)
+    {
+        for (int i = 0; i < CLIENT_QUANTITY; ++i)
+        {
+            UpdatePlayer(&(client_list[i].player));
+            
+            if ((PlayerAction)total_buffer[i] == JUMP)
+                client_list[i].player.speed = -client_list[i].player.jump_speed;
+        }
+        
+        for (Client client : client_list)
             sendto(server_socket, (char*)client_list, sizeof(Client)*CLIENT_QUANTITY, 0, (sockaddr*)&client.address, sizeof(client.address));
-            cout << "jpos: " << client.player.position_y << endl;
+        
+        for (int i = 0; i < CLIENT_QUANTITY; ++i)
+        {
+            initial_time = time(0);
+
+            recvfrom(server_socket, &buffer, sizeof(char), 0, (sockaddr*)&client_address, &client_address_size);
+            for (int j = 0; j < CLIENT_QUANTITY; ++j)
+            {
+                if (client_list[i].address.sin_addr.s_addr == client_address.sin_addr.s_addr)
+                    total_buffer[i] = buffer;
+            }
         }
 
-        recvfrom(server_socket, &buffer, sizeof(buffer), 0, (sockaddr*)&client_address, &client_address_size);
-
+        
+        usleep(1000000/480); // Receives/sends approximately 480 packets per second
     }
     
     
