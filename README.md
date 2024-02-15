@@ -6,6 +6,7 @@ This is essentially a Windows-only game (it may work in other platforms with som
 
 
 If you want to modify/compile the code, you will need Raylib (the graphics library used) installed in your computer (and you may need to modify some of names inside Raylib or Windows native libraries because of some conflicts).
+The ones I remember from the top of my head are Rectangle, ShowCursor, CloseWindow and byte.
 
 https://www.raylib.com/
 
