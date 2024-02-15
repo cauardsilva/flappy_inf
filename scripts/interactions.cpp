@@ -1,15 +1,11 @@
-#include "player.cpp"
-#include "obstacle.cpp"
-
-
 // Checks if the player collided with any obstacle or got out of the screen.
 bool CheckPlayerCollision(Player player, Obstacle* obs_list)
 {
     // The player rectangle is a bit smaller than the actual sprite to take into consideration its rotation, avoiding some strange collisions.
-    Rectangle2D player_rect = {player.position_x + 5, player.position_y + 5, PLAYER_WIDTH - 10, PLAYER_HEIGHT - 10};
+    Rectangle player_rect = {player.position_x + 5, player.position_y + 5, (PLAYER_WIDTH - 10) * player.size_multiplier, (PLAYER_HEIGHT - 10) * player.size_multiplier};
     
     // Checks if the player is out of the screen (with some tolerance to allow for some risky jumps).
-    if ((player.position_y >= WINDOW_HEIGHT + 30) || (player.position_y <= -130)) 
+    if ((player.position_y >= (WINDOW_HEIGHT + 30)) || (player.position_y <= -130)) 
         return true;
     
     // Checks if the player has collided with any of the obstacles.

@@ -1,3 +1,7 @@
+
+
+
+#include <cstddef> // byte
 #include <winsock2.h>
 #include "raylib.h"
 #include <string.h>
@@ -5,40 +9,54 @@
 #include <fstream>
 #include <stdio.h>      
 #include <stdlib.h>    
-#include <time.h>       
+#include <time.h>    
+#include <math.h>   
+#include <chrono>
+using namespace std;
+
 
 
 #include <unistd.h>
 
+#include "./scripts/global_constants.cpp"
+#include "./scripts/utils.cpp"
+#include "./scripts/difficulty.cpp"
+#include "./scripts/player.cpp"
+#include "./scripts/obstacle.cpp"
 #include "./scripts/interactions.cpp"
-
+#include "./scripts/multiplayer_datatypes.cpp"
 
 
 
 typedef struct Client {
     sockaddr_in address;
     Player player;
-    Color color;
+    bool is_alive;
 } Client;
 
 
-enum PlayerAction {NONE=0, JUMP=1};
 
 
-using namespace std;
+
+
+
+
+
 
 int main()
 {
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2,2), &wsa);
+    
+    srand(time(NULL));
+    SetRandomSeed(time(NULL));
+    
+    
     int qty;
     cout << "Type the number of clients: ";
     cin >> qty;
     
     const char CLIENT_QUANTITY = qty;
-    
-    srand(time(NULL));
-    
-    WSADATA wsa;
-    WSAStartup(MAKEWORD(2,2), &wsa);
     
     
     
@@ -53,23 +71,40 @@ int main()
     
     
     
+    // Disabling connection reset error: https://stackoverflow.com/questions/34242622/windows-udp-sockets-recvfrom-fails-with-error-10054
+    bool error_enabled = false;
+    DWORD output = 0;
+    WSAIoctl(server_socket, _WSAIOW(IOC_VENDOR, 12) /*SIO_UDP_CONNRESET*/, &error_enabled, sizeof(error_enabled), NULL, 0, &output, NULL, NULL);
+    
+    
+    
+    cout << endl << "Server created with success. Awaiting for new connections..." << endl;
+    
+    
+    
+    Client client_list[CLIENT_QUANTITY];
+    
     sockaddr_in client_address;
     int client_address_size = sizeof(client_address);
     
-    
-    
+    // This buffer is responsible for receiving client data, which is currently a char (unsigned int) representing the action it last took in the game.
     char buffer = 0;
+    // This packet stores all necessary information about the game, such as player and obstacle data, and is constantly sent to the clients.
+    Packet game_state;
     
-    Client client_list[CLIENT_QUANTITY];
-    char total_buffer[CLIENT_QUANTITY];
+    
+	
+    InitialPacket info;
     bool already_connected = false;
+    int current_index = 0;
     
-    for (int i = 0; i < (int)CLIENT_QUANTITY; ++i)
+    while (current_index != CLIENT_QUANTITY)
     {
         recvfrom(server_socket, &buffer, sizeof(char), 0, (sockaddr*)&client_address, &client_address_size);
 
         already_connected = false;
         
+        // Check if the client has already connected, as to not add it again to the array
         for (Client client : client_list)
         {
             if (client.address.sin_addr.s_addr == client_address.sin_addr.s_addr)
@@ -81,61 +116,169 @@ int main()
         
         if (!already_connected)
         {
-            client_list[i].address              = client_address;
-            client_list[i].player.current_frame = 0;
-            client_list[i].player.speed         = 0;
-            client_list[i].player.jump_speed    = 10;
-            client_list[i].player.acceleration  = .3;
-            client_list[i].player.position_x    = 96;
-            client_list[i].player.position_y    = 200;
-            client_list[i].color                = {rand() % 256, rand() % 256, rand() % 256, 255};
+            client_list[current_index].address      = client_address;
+            client_list[current_index].player.color = game_state.player_list[current_index].color = {rand() % 256, rand() % 256, rand() % 256, 255};
             
-            cout << "New client connected! IP: " << inet_ntoa(client_address.sin_addr) << endl;
+            cout << endl << "New client connected! IP: " << inet_ntoa(client_address.sin_addr);
+			
+            info.client_index    = current_index;
+            info.client_quantity = CLIENT_QUANTITY;
             
-            sendto(server_socket, &CLIENT_QUANTITY, sizeof(char), 0, (sockaddr*)&client_address, sizeof(client_address));
+            // Sends the number of players to each client that connects so it can create its local array
+            sendto(server_socket, (char*)&info, sizeof(InitialPacket), 0, (sockaddr*)&client_address, sizeof(client_address));
+            
+            ++current_index;
         }
     }
     
     
-    cout << "All clients connected! Starting game.";
+    
+    cout << endl << endl << "All clients connected! Starting game.";
+    
+	
+    
+    timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = MAX_WAIT_USEC;
+    
+    fd_set server_socket_read;
     
     
-    time_t initial_time;
- 
+    
+    
+    Obstacle obs_list[OBSTACLE_QUANTITY];
+    
+    PlayerAction action_list[CLIENT_QUANTITY];
+    
+	Difficulty original_difficulty = LoadDifficulty(SERVER);
+    Difficulty difficulty;
+	
+    time_t start_time;
+    unsigned int recv_timer;
+    int num_client_action;
+    
+    int score;
+    bool is_everyone_dead;
+        
     while (true)
     {
+        score = 0;
+        is_everyone_dead = false;
+        
+        difficulty = original_difficulty;
+        
+        
         for (int i = 0; i < CLIENT_QUANTITY; ++i)
         {
-            UpdatePlayer(&(client_list[i].player));
+            InitializePlayer(&(client_list[i].player), difficulty);
+            client_list[i].is_alive = true;
+        }
+        
+        InitializeObstacles(obs_list, difficulty);
+        
+
+        
+        while (!is_everyone_dead)
+        {
+                for (int i = 0; i < CLIENT_QUANTITY; ++i)
+                {
+                    if (client_list[i].is_alive && !CheckPlayerCollision(client_list[i].player, obs_list))
+                    {
+                        UpdatePlayer(&(client_list[i].player));
+                        
+                        if (action_list[i] == JUMP)
+                        {
+                            client_list[i].player.speed = -client_list[i].player.jump_speed;
+                            action_list[i] = NONE;
+                        }
+                    }
+                    else if (!client_list[i].is_alive)
+                    {
+                        if (client_list[i].player.position_y <= WINDOW_HEIGHT + 80 && client_list[i].player.position_y >= -350)
+                            UpdatePlayer(&(client_list[i].player)); 
+                    }
+                    else 
+                    {
+                        client_list[i].is_alive       = false;
+                        client_list[i].player.speed   = 0;
+                        client_list[i].player.gravity = .8 * copysign(1, client_list[i].player.gravity);       
+                    }
+                    
+                    game_state.player_list[i].speed      = client_list[i].player.speed;
+                    game_state.player_list[i].position_x = client_list[i].player.position_x;
+                    game_state.player_list[i].position_y = client_list[i].player.position_y;
+                }
+                
+                
+                
+                UpdateObstacles(obs_list, &difficulty, &score);
+                
+                for (int i = 0; i < OBSTACLE_QUANTITY; ++i)
+                {
+                    game_state.obs_list[i].position_x     = obs_list[i].position_x;
+                    game_state.obs_list[i].gap_position_y = obs_list[i].gap_position_y;    
+                    game_state.obs_list[i].gap_height     = obs_list[i].gap_height;
+                }
             
-            if ((PlayerAction)total_buffer[i] == JUMP)
-                client_list[i].player.speed = -client_list[i].player.jump_speed;
-        }
-        
-        for (Client client : client_list)
-            sendto(server_socket, (char*)client_list, sizeof(Client)*CLIENT_QUANTITY, 0, (sockaddr*)&client.address, sizeof(client.address));
-        
-        for (int i = 0; i < CLIENT_QUANTITY; ++i)
-        {
-            initial_time = time(0);
-
-            recvfrom(server_socket, &buffer, sizeof(char), 0, (sockaddr*)&client_address, &client_address_size);
-            for (int j = 0; j < CLIENT_QUANTITY; ++j)
+            
+            
+            for (Client client : client_list)
+                sendto(server_socket, (char*)&game_state, sizeof(game_state), 0, (sockaddr*)&client.address, sizeof(client.address));
+            
+            
+            num_client_action = 0;
+            
+            recv_timer = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+            
+            while (num_client_action != CLIENT_QUANTITY)
             {
-                if (client_list[i].address.sin_addr.s_addr == client_address.sin_addr.s_addr)
-                    total_buffer[i] = buffer;
+                FD_ZERO(&server_socket_read);
+                FD_SET(server_socket, &server_socket_read);
+                
+                if (select(server_socket+1, &server_socket_read, NULL, NULL, &timeout) > 0)
+                {
+                    recvfrom(server_socket, &buffer, sizeof(char), 0, (sockaddr*)&client_address, &client_address_size);
+                    
+                    for (int j = 0; j < CLIENT_QUANTITY; ++j)
+                    {
+                        if (client_list[num_client_action].address.sin_addr.s_addr == client_address.sin_addr.s_addr)
+                        {
+                            action_list[num_client_action] = (PlayerAction)buffer;
+                            ++num_client_action;
+                            
+                            recv_timer = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+                            
+                            break;
+                        }
+                        
+                        if (chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - recv_timer >= MAX_WAIT_SINGLE_CLIENT_MSEC)
+                        {
+                            ++num_client_action;
+                            break;
+                        }
+                    }
+                }
+                else
+                    break;
             }
+            
+            
+            
+            for (int i = 0; i < CLIENT_QUANTITY; ++i)
+            {
+                if   (client_list[i].is_alive) break; 
+                if ((!client_list[i].is_alive) && (i == CLIENT_QUANTITY-1)) is_everyone_dead = true;
+            }
+       
+       
+       
+            usleep(1000000/480); // Receives/sends approximately 480 packets per second
         }
-
-        
-        usleep(1000000/480); // Receives/sends approximately 480 packets per second
     }
     
     
     
     WSACleanup();
-    
-    
     
     return 0;
 }

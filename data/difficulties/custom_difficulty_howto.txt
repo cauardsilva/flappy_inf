@@ -1,2 +1,15 @@
-If you want to create your custom difficulty, copy one of the files present in this folder and edit its values.
+If you want to create your custom difficulty, use one of the files present in this folder as a template and edit its values.
+You should only be modifying the custom_difficulty.txt file as to not lose any default difficulty and to avoid any undesired game behaviour. 
 
+score_threshold    
+gap_height 
+gap_height_increment
+gap_position_delta
+gap_position_delta_increment
+obstacle_speed
+obstacle_speed_increment
+obstacle_distance
+obstacle_distance_increment <- not working currently. unpredictable behaviour. set it to zero always
+player_position_x
+player_jump_speed
+player_acceleration
